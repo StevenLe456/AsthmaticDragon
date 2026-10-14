@@ -1,0 +1,238 @@
+"""
+Real-time rPPG with BigSmall (rPPG-Toolbox) on CPU + webcam.
+
+Run from the rPPG-Toolbox repo root so `neural_methods` is importable:
+    python bigsmall_realtime.py --weights final_model_release/BP4D_BigSmall_Multitask_Fold1.pth
+
+Dependencies: torch, opencv-python, numpy, scipy
+
+Items marked VERIFY depend on the toolbox's BigSmall config/loader and
+should be checked against your copy of the repo.
+"""
+import argparse
+import os
+import time
+from collections import deque
+
+import cv2
+import numpy as np
+import torch
+from scipy.signal import butter, sosfiltfilt
+
+from neural_methods.model.BigSmall import BigSmall  # VERIFY import path
+
+# ----------------------------- settings ------------------------------------
+N_SEG = 3              # frames per model window (BigSmall frame depth) VERIFY
+BIG_SIZE = 144         # Big branch input
+SMALL_SIZE = 9         # Small branch input
+TARGET_FPS = 25        # rate the model was trained at (BP4D+) VERIFY
+BUF_SECONDS = 12       # rolling PPG buffer length
+MIN_SECONDS = 8        # wait this long before estimating HR
+LOW_HZ, HIGH_HZ = 0.7, 3.0
+DETECT_EVERY = 10      # run face detector every N processed frames
+BOX_SCALE = 1.5        # enlarge detected box (toolbox uses a larger box)
+INTEGRATE_OUTPUT = False  # True if your config's label type is a derivative
+                          # (e.g. DiffNormalized). VERIFY against the config.
+BIG_STANDARDIZE = False   # True if the loader standardizes Big frames. VERIFY
+
+
+# ----------------------------- face tracking -------------------------------
+class FaceTracker:
+    def __init__(self):
+        #path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        path = os.path.join("cv_data", "haarcascade_frontalface_default.xml")
+        self.det = cv2.CascadeClassifier(path)
+        self.box = None  # (cx, cy, w, h) smoothed
+        self.n = 0
+
+    def update(self, frame):
+        if self.box is None or self.n % DETECT_EVERY == 0:
+            scale = 0.5  # detect on a half-size gray image for speed
+            gray = cv2.cvtColor(cv2.resize(frame, None, fx=scale, fy=scale),
+                                cv2.COLOR_BGR2GRAY)
+            faces = self.det.detectMultiScale(gray, 1.1, 5, minSize=(60, 60))
+            if len(faces):
+                x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+                x /= scale
+                y /= scale
+                w /= scale
+                h /= scale
+                new = np.array([x + w / 2, y + h / 2, w, h], dtype=np.float32)
+                self.box = new if self.box is None else 0.7 * self.box + 0.3 * new
+        self.n += 1
+        return self.box
+
+    def crop(self, frame):
+        if self.box is None:
+            return None
+        cx, cy, w, h = self.box
+        s = max(w, h) * BOX_SCALE
+        x0, y0 = int(max(cx - s / 2, 0)), int(max(cy - s / 2, 0))
+        x1 = int(min(cx + s / 2, frame.shape[1]))
+        y1 = int(min(cy + s / 2, frame.shape[0]))
+        if x1 - x0 < 20 or y1 - y0 < 20:
+            return None
+        return frame[y0:y1, x0:x1], (x0, y0, x1, y1)
+
+
+# ----------------------------- model ---------------------------------------
+def load_model(weights):
+    model = BigSmall(n_segment=N_SEG)  # defaults match the multitask release
+    state = torch.load(weights, map_location="cpu")
+    state = {k.replace("module.", ""): v for k, v in state.items()}
+    model.load_state_dict(state)
+    return model.eval()
+
+
+class WindowProcessor:
+    """Collects frames, builds (big, small) inputs, and runs the model."""
+
+    def __init__(self, model):
+        self.model = model
+        self.big = deque(maxlen=N_SEG + 1)
+        self.small = deque(maxlen=N_SEG + 1)
+        self.diff_std = None  # running std for diff normalization
+
+    def push(self, crop_bgr):
+        rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
+        big = cv2.resize(rgb, (BIG_SIZE, BIG_SIZE),
+                         interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+        small = cv2.resize(rgb, (SMALL_SIZE, SMALL_SIZE),
+                           interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+        self.big.append(big)
+        self.small.append(small)
+        if len(self.big) < N_SEG + 1:
+            return None
+
+        bigs = np.stack(list(self.big)[:N_SEG])
+        sm = np.stack(self.small)
+        diffs = (sm[1:] - sm[:-1]) / (sm[1:] + sm[:-1] + 1e-7)
+
+        # The toolbox divides by the std over the whole video; use a running
+        # estimate instead for streaming.
+        cur = float(diffs.std()) + 1e-7
+        self.diff_std = cur if self.diff_std is None else 0.99 * self.diff_std + 0.01 * cur
+        diffs = diffs / self.diff_std
+
+        if BIG_STANDARDIZE:
+            bigs = (bigs - bigs.mean()) / (bigs.std() + 1e-7)
+
+        big_t = torch.from_numpy(bigs.transpose(0, 3, 1, 2).copy())      # [3,3,144,144]
+        small_t = torch.from_numpy(diffs.transpose(0, 3, 1, 2).copy())   # [3,3,9,9]
+
+        with torch.no_grad():
+            au, bvp, resp = self.model([big_t, small_t])  # (au, bvp, resp) VERIFY order
+        out = au.detach().cpu().numpy().ravel()
+
+        # Keep the newest frame as the start of the next (non-overlapping) window
+        last_big, last_small = self.big[-1], self.small[-1]
+        self.big.clear(); self.small.clear()
+        self.big.append(last_big); self.small.append(last_small)
+        return out
+
+
+# ----------------------------- signal processing ---------------------------
+def clean_signal(raw, fs):
+    sig = np.cumsum(raw) if INTEGRATE_OUTPUT else np.asarray(raw, dtype=np.float64)
+    sig = sig - np.mean(sig)
+    sos = butter(3, [LOW_HZ, HIGH_HZ], btype="bandpass", fs=fs, output="sos")
+    return sosfiltfilt(sos, sig)
+
+
+def estimate_hr(sig, fs):
+    n = len(sig)
+    nfft = max(4096, 1 << (n - 1).bit_length())
+    win = np.hanning(n)
+    spec = np.abs(np.fft.rfft(sig * win, nfft)) ** 2
+    freqs = np.fft.rfftfreq(nfft, 1.0 / fs)
+    band = (freqs >= LOW_HZ) & (freqs <= HIGH_HZ)
+    return 60.0 * freqs[band][np.argmax(spec[band])]
+
+
+# ----------------------------- display -------------------------------------
+def draw_waveform(img, sig, fs, seconds=8):
+    h, w = img.shape[:2]
+    area_h = 100
+    y0 = h - area_h - 10
+    cv2.rectangle(img, (10, y0), (w - 10, y0 + area_h), (0, 0, 0), -1)
+    seg = sig[-int(seconds * fs):]
+    if len(seg) < 2:
+        return
+    seg = (seg - seg.min()) / (np.ptp(seg) + 1e-9)
+    xs = np.linspace(10, w - 10, len(seg)).astype(int)
+    ys = (y0 + area_h - 5 - seg * (area_h - 10)).astype(int)
+    cv2.polylines(img, [np.stack([xs, ys], 1)], False, (0, 255, 0), 2)
+
+
+# ----------------------------- main ----------------------------------------
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--weights", required=True)
+    ap.add_argument("--camera", type=int, default=0)
+    args = ap.parse_args()
+
+    torch.set_num_threads(min(4, os.cpu_count() or 1))
+    model = load_model(args.weights)
+    proc = WindowProcessor(model)
+    tracker = FaceTracker()
+
+    cap = cv2.VideoCapture(args.camera)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    # Fixed exposure/white balance helps if your driver supports it:
+    # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+
+    raw_buf = deque(maxlen=TARGET_FPS * BUF_SECONDS)
+    hr_hist = deque(maxlen=5)
+    hr = None
+    last_taken = 0.0
+    last_hr_time = 0.0
+    period = 1.0 / TARGET_FPS
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        now = time.time()
+
+        # Subsample to the model's training frame rate using wall-clock time
+        if now - last_taken >= period:
+            last_taken = now
+            tracker.update(frame)
+            res = tracker.crop(frame)
+            if res is not None:
+                crop, (x0, y0, x1, y1) = res
+                cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 200, 0), 2)
+                out = proc.push(crop)
+                if out is not None:
+                    raw_buf.extend(out)
+            else:
+                # Lost the face: reset so we don't stitch across a gap
+                proc.big.clear(); proc.small.clear()
+
+        if len(raw_buf) >= TARGET_FPS * MIN_SECONDS:
+            sig = clean_signal(np.array(raw_buf), TARGET_FPS)
+            draw_waveform(frame, sig, TARGET_FPS)
+            if now - last_hr_time > 1.0:
+                last_hr_time = now
+                hr_hist.append(estimate_hr(sig, TARGET_FPS))
+                hr = float(np.median(hr_hist))
+            if hr is not None:
+                cv2.putText(frame, f"HR: {hr:.0f} bpm", (15, 35),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+        else:
+            pct = int(100 * len(raw_buf) / (TARGET_FPS * MIN_SECONDS))
+            cv2.putText(frame, f"Warming up {min(pct, 100)}%", (15, 35),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
+
+        cv2.imshow("BigSmall rPPG", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
