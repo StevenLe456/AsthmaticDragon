@@ -2,30 +2,29 @@
 Real-time rPPG with BigSmall (rPPG-Toolbox) on CPU + webcam.
 
 Run from the rPPG-Toolbox repo root so `neural_methods` is importable:
-    python bigsmall_realtime.py --weights final_model_release/BP4D_BigSmall_Multitask_Fold1.pth
+    python data_collection.py --weights final_model_release/BP4D_BigSmall_Multitask_Fold1.pth
 
-Dependencies: torch, opencv-python, numpy, scipy
-
-Items marked VERIFY depend on the toolbox's BigSmall config/loader and
-should be checked against your copy of the repo.
+Dependencies: torch, opencv-python, numpy, keyboard, pandas
 """
 import argparse
+import datetime
 import os
 import time
 from collections import deque
 
 import cv2
+import keyboard
 import numpy as np
+import pandas as pd
 import torch
-from scipy.signal import butter, sosfiltfilt
 
-from neural_methods.model.BigSmall import BigSmall  # VERIFY import path
+from neural_methods.model.BigSmall import BigSmall
 
 # ----------------------------- settings ------------------------------------
-N_SEG = 3              # frames per model window (BigSmall frame depth) VERIFY
+N_SEG = 3              # frames per model window (BigSmall frame depth)
 BIG_SIZE = 144         # Big branch input
 SMALL_SIZE = 9         # Small branch input
-TARGET_FPS = 25        # rate the model was trained at (BP4D+) VERIFY
+TARGET_FPS = 25        # rate the model was trained at (BP4D+)
 BUF_SECONDS = 12       # rolling PPG buffer length
 MIN_SECONDS = 8        # wait this long before estimating HR
 LOW_HZ, HIGH_HZ = 0.7, 3.0
@@ -35,11 +34,12 @@ INTEGRATE_OUTPUT = False  # True if your config's label type is a derivative
                           # (e.g. DiffNormalized). VERIFY against the config.
 BIG_STANDARDIZE = False   # True if the loader standardizes Big frames. VERIFY
 
+record = False
+
 
 # ----------------------------- face tracking -------------------------------
 class FaceTracker:
     def __init__(self):
-        #path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         path = os.path.join("cv_data", "haarcascade_frontalface_default.xml")
         self.det = cv2.CascadeClassifier(path)
         self.box = None  # (cx, cy, w, h) smoothed
@@ -122,7 +122,7 @@ class WindowProcessor:
 
         with torch.no_grad():
             au, bvp, resp = self.model([big_t, small_t])  # (au, bvp, resp) VERIFY order
-        out = au.detach().cpu().numpy().ravel()
+        out = au.detach().cpu().numpy().ravel(), bvp.detach().cpu().numpy().ravel(), resp.detach().cpu().numpy().ravel()
 
         # Keep the newest frame as the start of the next (non-overlapping) window
         last_big, last_small = self.big[-1], self.small[-1]
@@ -132,36 +132,18 @@ class WindowProcessor:
 
 
 # ----------------------------- signal processing ---------------------------
-def clean_signal(raw, fs):
-    sig = np.cumsum(raw) if INTEGRATE_OUTPUT else np.asarray(raw, dtype=np.float64)
-    sig = sig - np.mean(sig)
-    sos = butter(3, [LOW_HZ, HIGH_HZ], btype="bandpass", fs=fs, output="sos")
-    return sosfiltfilt(sos, sig)
+# def clean_signal(raw, fs):
+#     sig = np.cumsum(raw) if INTEGRATE_OUTPUT else np.asarray(raw, dtype=np.float64)
+#     sig = sig - np.mean(sig)
+#     sos = butter(3, [LOW_HZ, HIGH_HZ], btype="bandpass", fs=fs, output="sos")
+#     return sosfiltfilt(sos, sig)
 
 
-def estimate_hr(sig, fs):
-    n = len(sig)
-    nfft = max(4096, 1 << (n - 1).bit_length())
-    win = np.hanning(n)
-    spec = np.abs(np.fft.rfft(sig * win, nfft)) ** 2
-    freqs = np.fft.rfftfreq(nfft, 1.0 / fs)
-    band = (freqs >= LOW_HZ) & (freqs <= HIGH_HZ)
-    return 60.0 * freqs[band][np.argmax(spec[band])]
-
-
-# ----------------------------- display -------------------------------------
-def draw_waveform(img, sig, fs, seconds=8):
-    h, w = img.shape[:2]
-    area_h = 100
-    y0 = h - area_h - 10
-    cv2.rectangle(img, (10, y0), (w - 10, y0 + area_h), (0, 0, 0), -1)
-    seg = sig[-int(seconds * fs):]
-    if len(seg) < 2:
-        return
-    seg = (seg - seg.min()) / (np.ptp(seg) + 1e-9)
-    xs = np.linspace(10, w - 10, len(seg)).astype(int)
-    ys = (y0 + area_h - 5 - seg * (area_h - 10)).astype(int)
-    cv2.polylines(img, [np.stack([xs, ys], 1)], False, (0, 255, 0), 2)
+def on_r(event):
+    if event.name == 'r':
+        global record
+        record = not record
+        print(record)
 
 
 # ----------------------------- main ----------------------------------------
@@ -170,6 +152,11 @@ def main():
     ap.add_argument("--weights", required=True)
     ap.add_argument("--camera", type=int, default=0)
     args = ap.parse_args()
+
+    breathing_pattern = input("What breathing pattern are you recording in this session? ")
+    directory = os.path.join("data", breathing_pattern)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
     torch.set_num_threads(min(4, os.cpu_count() or 1))
     model = load_model(args.weights)
@@ -180,21 +167,34 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 30)
-    # Fixed exposure/white balance helps if your driver supports it:
-    # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
-
-    raw_buf = deque(maxlen=TARGET_FPS * BUF_SECONDS)
-    hr_hist = deque(maxlen=5)
-    hr = None
     last_taken = 0.0
-    last_hr_time = 0.0
     period = 1.0 / TARGET_FPS
+
+    data = []
+
+    print_once = True
+
+    keyboard.on_press_key('r', on_r)
 
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         now = time.time()
+        if record:
+            if print_once:
+                print("Recording")
+                print_once = False
+        else:
+            if data:
+                print("Stop recording")
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                df = pd.DataFrame(data)
+                filename = f"{breathing_pattern}_{timestamp}.csv"
+                pth = os.path.join(directory, filename)
+                df.to_csv(pth)
+                data = []
+                print_once = True
 
         # Subsample to the model's training frame rate using wall-clock time
         if now - last_taken >= period:
@@ -202,37 +202,25 @@ def main():
             tracker.update(frame)
             res = tracker.crop(frame)
             if res is not None:
+                print("Face detected")
                 crop, (x0, y0, x1, y1) = res
                 cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 200, 0), 2)
                 out = proc.push(crop)
-                if out is not None:
-                    raw_buf.extend(out)
+                if out is not None and record:
+                    # Write all three values to temp list
+                    au_val = np.argmax(out[0])
+                    for i, j in zip(out[1], out[2]):
+                        data.append({"au": au_val, "bvp": i, "resp": j})
             else:
                 # Lost the face: reset so we don't stitch across a gap
                 proc.big.clear(); proc.small.clear()
+                print("Face not detected")
 
-        if len(raw_buf) >= TARGET_FPS * MIN_SECONDS:
-            sig = clean_signal(np.array(raw_buf), TARGET_FPS)
-            draw_waveform(frame, sig, TARGET_FPS)
-            if now - last_hr_time > 1.0:
-                last_hr_time = now
-                hr_hist.append(estimate_hr(sig, TARGET_FPS))
-                hr = float(np.median(hr_hist))
-            if hr is not None:
-                cv2.putText(frame, f"HR: {hr:.0f} bpm", (15, 35),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-        else:
-            pct = int(100 * len(raw_buf) / (TARGET_FPS * MIN_SECONDS))
-            cv2.putText(frame, f"Warming up {min(pct, 100)}%", (15, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
-
-        cv2.imshow("BigSmall rPPG", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        if keyboard.is_pressed('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     main()
