@@ -20,7 +20,6 @@ import torch
 
 from neural_methods.model.BigSmall import BigSmall
 
-# ----------------------------- settings ------------------------------------
 N_SEG = 3              # frames per model window (BigSmall frame depth)
 BIG_SIZE = 144         # Big branch input
 SMALL_SIZE = 9         # Small branch input
@@ -37,7 +36,6 @@ BIG_STANDARDIZE = False   # True if the loader standardizes Big frames. VERIFY
 record = False
 
 
-# ----------------------------- face tracking -------------------------------
 class FaceTracker:
     def __init__(self):
         path = os.path.join("cv_data", "haarcascade_frontalface_default.xml")
@@ -75,7 +73,6 @@ class FaceTracker:
         return frame[y0:y1, x0:x1], (x0, y0, x1, y1)
 
 
-# ----------------------------- model ---------------------------------------
 def load_model(weights):
     model = BigSmall(n_segment=N_SEG)  # defaults match the multitask release
     state = torch.load(weights, map_location="cpu")
@@ -117,11 +114,11 @@ class WindowProcessor:
         if BIG_STANDARDIZE:
             bigs = (bigs - bigs.mean()) / (bigs.std() + 1e-7)
 
-        big_t = torch.from_numpy(bigs.transpose(0, 3, 1, 2).copy())      # [3,3,144,144]
-        small_t = torch.from_numpy(diffs.transpose(0, 3, 1, 2).copy())   # [3,3,9,9]
+        big_t = torch.from_numpy(bigs.transpose(0, 3, 1, 2).copy())
+        small_t = torch.from_numpy(diffs.transpose(0, 3, 1, 2).copy())
 
         with torch.no_grad():
-            au, bvp, resp = self.model([big_t, small_t])  # (au, bvp, resp) VERIFY order
+            au, bvp, resp = self.model([big_t, small_t])  # (au, bvp, resp)
         out = au.detach().cpu().numpy().ravel(), bvp.detach().cpu().numpy().ravel(), resp.detach().cpu().numpy().ravel()
 
         # Keep the newest frame as the start of the next (non-overlapping) window
@@ -146,24 +143,18 @@ def on_r(event):
         print(record)
 
 
-# ----------------------------- main ----------------------------------------
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", required=True)
-    ap.add_argument("--camera", type=int, default=0)
-    args = ap.parse_args()
-
     breathing_pattern = input("What breathing pattern are you recording in this session? ")
     directory = os.path.join("data", breathing_pattern)
     if not os.path.exists(directory):
         os.makedirs(directory)
 
     torch.set_num_threads(min(4, os.cpu_count() or 1))
-    model = load_model(args.weights)
+    model = load_model("final_model_release/BP4D_BigSmall_Multitask_Fold1.pth")
     proc = WindowProcessor(model)
     tracker = FaceTracker()
 
-    cap = cv2.VideoCapture(args.camera)
+    cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 30)
@@ -207,7 +198,6 @@ def main():
                 cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 200, 0), 2)
                 out = proc.push(crop)
                 if out is not None and record:
-                    # Write all three values to temp list
                     au_val = np.argmax(out[0])
                     for i, j in zip(out[1], out[2]):
                         data.append({"au": au_val, "bvp": i, "resp": j})
