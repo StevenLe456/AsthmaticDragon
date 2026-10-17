@@ -6,7 +6,6 @@ Run from the rPPG-Toolbox repo root so `neural_methods` is importable:
 
 Dependencies: torch, opencv-python, numpy, keyboard, pandas
 """
-import argparse
 import datetime
 import os
 import time
