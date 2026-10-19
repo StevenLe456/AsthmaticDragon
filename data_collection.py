@@ -1,11 +1,3 @@
-"""
-Real-time rPPG with BigSmall (rPPG-Toolbox) on CPU + webcam.
-
-Run from the rPPG-Toolbox repo root so `neural_methods` is importable:
-    python data_collection.py --weights final_model_release/BP4D_BigSmall_Multitask_Fold1.pth
-
-Dependencies: torch, opencv-python, numpy, keyboard, pandas
-"""
 import datetime
 import os
 import time
