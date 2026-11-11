@@ -159,7 +159,7 @@ class Game(arcade.Window):
                         else:
                             pass
                         collision.remove_from_sprite_lists()
-            if b.bottom > 600:
+            if b.bottom > HEIGHT:
                 b.remove_from_sprite_lists()
 
     def on_key_press(self, symbol, modifiers):
