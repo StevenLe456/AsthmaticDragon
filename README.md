@@ -38,4 +38,6 @@ Here is the confusion matrix for the SVM model.
 
 ### Game
 
-NOTE: Add screenshots of game here!
+Here are screenshots of the gameplay.
+
+![game 1](img/game_1.png "Game 1")
