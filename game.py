@@ -13,6 +13,8 @@ FIRE_SPEED = 6
 FIRE_OFFSET = 54
 BUNNY_SCALE = 0.5
 BUNNY_OFFSET = 50
+SMALLER_BUN_SCALE = 0.25
+SMALLEST_BUN_SCALE = 0.12
 
 class Dragon(arcade.Sprite):
     def __init__(self):
@@ -29,6 +31,13 @@ class Dragon(arcade.Sprite):
             self.texture = self.textures[1]
         else:
             self.texture = self.textures[0]
+
+class Bunny(arcade.Sprite):
+    def __init__(self, texture, scale, sz):
+        super().__init__()
+        self.texture = arcade.load_texture(texture)
+        self.scale = scale
+        self.sz = sz
 
 class Game(arcade.Window):
     def __init__(self, width, height, title):
@@ -74,7 +83,7 @@ class Game(arcade.Window):
 
         # Initialize dust bunnies here
         for i in [0, 1, 3, 4, 6, 7]:
-            bunners = arcade.Sprite(os.path.join("assets", "sprites", "sprite_5.png"), BUNNY_SCALE)
+            bunners = Bunny(os.path.join("assets", "sprites", "sprite_5.png"), BUNNY_SCALE, "large")
             bunners.center_x = i * WIDTH / 8 + BUNNY_OFFSET
             bunners.center_y = HEIGHT - 60
             bunners.change_y = -1
@@ -105,6 +114,51 @@ class Game(arcade.Window):
 
         # Bullet collision and out-of-bounds logic
         for b in self.scene.get_sprite_list("Fire"): # type: ignore
+            hit = arcade.check_for_collision_with_lists(
+                b,
+                [
+                    self.scene["Bunny"] # type: ignore
+                ]
+            )
+            if hit:
+                b.remove_from_sprite_lists()
+                for collision in hit:
+                    if self.scene["Bunny"] in collision.sprite_lists: # type: ignore
+                        if collision.sz == "large":
+                            b1 = Bunny(os.path.join("assets", "sprites", "sprite_6.png"), SMALLER_BUN_SCALE, "medium")
+                            b1.center_x = collision.center_x - 25
+                            b1.center_y = collision.center_y
+                            b1.change_y = -2
+                            self.scene.add_sprite("Bunny", b1) # type: ignore
+                            b2 = Bunny(os.path.join("assets", "sprites", "sprite_6.png"), SMALLER_BUN_SCALE, "medium")
+                            b2.center_x = collision.center_x + 25
+                            b2.center_y = collision.center_y
+                            b2.change_y = -2
+                            self.scene.add_sprite("Bunny", b2) # type: ignore
+                        elif collision.sz == "medium":
+                            b1 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
+                            b1.center_x = collision.center_x - 12
+                            b1.center_y = collision.center_y - 12
+                            b1.change_y = -3
+                            self.scene.add_sprite("Bunny", b1) # type: ignore
+                            b2 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
+                            b2.center_x = collision.center_x + 12
+                            b2.center_y = collision.center_y + 12
+                            b2.change_y = -3
+                            self.scene.add_sprite("Bunny", b2) # type: ignore
+                            b3 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
+                            b3.center_x = collision.center_x + 12
+                            b3.center_y = collision.center_y - 12
+                            b3.change_y = -3
+                            self.scene.add_sprite("Bunny", b3) # type: ignore
+                            b4 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
+                            b4.center_x = collision.center_x - 12
+                            b4.center_y = collision.center_y + 12
+                            b4.change_y = -3
+                            self.scene.add_sprite("Bunny", b4) # type: ignore
+                        else:
+                            pass
+                        collision.remove_from_sprite_lists()
             if b.bottom > 600:
                 b.remove_from_sprite_lists()
 
