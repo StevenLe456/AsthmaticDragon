@@ -191,8 +191,18 @@ def main():
                     classy = "normal"
                 elif pred == 1:
                     classy = "box"
-                else:
+                elif pred == 2:
                     classy = "inhaler"
+                elif pred == 3:
+                    classy = "non-box (pause in breathing too short)"
+                elif pred == 4:
+                    classy = "non-box (breathing in/out too short)"
+                elif pred == 5:
+                    classy = "non-inhaler (forgot to exhale in the beginning)"
+                elif pred == 6:
+                    classy = "non-inhaler (pause in breathing too short)"
+                else:
+                    classy = "error"
                 _ = input(f"The predicted class is {classy}. Press ENTER to continue.")
                 data = []
                 print_once = True

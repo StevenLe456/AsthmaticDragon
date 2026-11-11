@@ -27,6 +27,10 @@ def main():
     normal = 0
     box = 0
     inhaler = 0
+    b1 = 0
+    b2 = 0
+    i1 = 0
+    i2 = 0
 
     for root, dirs, files in os.walk("data"):
         for f in files:
@@ -41,18 +45,30 @@ def main():
             if "normal" in path:
                 j = 0
                 normal += 1
+            elif "nonbox1" in path:
+                j = 3
+                b1 += 1
+            elif "nonbox2" in path:
+                j = 4
+                b2 += 1
             elif "box" in path:
                 j = 1
                 box += 1
+            elif "noninhaler1" in path:
+                j = 5
+                i1 += 1
+            elif "noninhaler2" in path:
+                j = 6
+                i2 += 1
             elif "inhaler" in path:
                 j = 2
                 inhaler += 1
             else:
                 print("Error...")
-            if (j == 0 and normal <= 16) or (j == 1 and box <= 16) or (j == 2 and inhaler <= 16):
+            if (j == 0 and normal <= 15) or (j == 1 and box <= 15) or (j == 2 and inhaler <= 15) or (j == 3 and b1 <= 15) or (j == 4 and b2 <= 15) or (j == 5 and i1 <= 15) or (j == 6 and i2 <= 15):
                 train_x.append(i)
                 train_y.append(j)
-            elif (j == 0 and normal > 16) or (j == 1 and box > 16) or (j == 2 and inhaler > 16):
+            elif (j == 0 and normal > 15) or (j == 1 and box > 15) or (j == 2 and inhaler > 15) or (j == 3 and b1 > 15) or (j == 4 and b2 > 15) or (j == 5 and i1 > 15) or (j == 6 and i2 > 15):
                 test_x.append(i)
                 test_y.append(j)
             else:
