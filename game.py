@@ -2,7 +2,7 @@ import arcade
 import os
 
 WIDTH = 800
-HEIGHT = 600
+HEIGHT = 650
 TITLE = "Asthmatic Dragon"
 CHARA_SCALE = 0.6
 CHARA_SPEED = 4
@@ -86,7 +86,7 @@ class Game(arcade.Window):
             bunners = Bunny(os.path.join("assets", "sprites", "sprite_5.png"), BUNNY_SCALE, "large")
             bunners.center_x = i * WIDTH / 8 + BUNNY_OFFSET
             bunners.center_y = HEIGHT - 60
-            bunners.change_y = -1
+            bunners.change_y = -0.5
             self.scene.add_sprite("Bunny", bunners)
 
         # Initialize physics engine
@@ -128,33 +128,33 @@ class Game(arcade.Window):
                             b1 = Bunny(os.path.join("assets", "sprites", "sprite_6.png"), SMALLER_BUN_SCALE, "medium")
                             b1.center_x = collision.center_x - 25
                             b1.center_y = collision.center_y
-                            b1.change_y = -2
+                            b1.change_y = -1
                             self.scene.add_sprite("Bunny", b1) # type: ignore
                             b2 = Bunny(os.path.join("assets", "sprites", "sprite_6.png"), SMALLER_BUN_SCALE, "medium")
                             b2.center_x = collision.center_x + 25
                             b2.center_y = collision.center_y
-                            b2.change_y = -2
+                            b2.change_y = -1
                             self.scene.add_sprite("Bunny", b2) # type: ignore
                         elif collision.sz == "medium":
                             b1 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
                             b1.center_x = collision.center_x - 12
                             b1.center_y = collision.center_y - 12
-                            b1.change_y = -3
+                            b1.change_y = -2
                             self.scene.add_sprite("Bunny", b1) # type: ignore
                             b2 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
                             b2.center_x = collision.center_x + 12
                             b2.center_y = collision.center_y + 12
-                            b2.change_y = -3
+                            b2.change_y = -2
                             self.scene.add_sprite("Bunny", b2) # type: ignore
                             b3 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
                             b3.center_x = collision.center_x + 12
                             b3.center_y = collision.center_y - 12
-                            b3.change_y = -3
+                            b3.change_y = -2
                             self.scene.add_sprite("Bunny", b3) # type: ignore
                             b4 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
                             b4.center_x = collision.center_x - 12
                             b4.center_y = collision.center_y + 12
-                            b4.change_y = -3
+                            b4.change_y = -2
                             self.scene.add_sprite("Bunny", b4) # type: ignore
                         else:
                             pass
@@ -187,12 +187,10 @@ class Game(arcade.Window):
         else:
             pass
 
-
 def main():
     game = Game(WIDTH, HEIGHT, TITLE)
     game.setup()
     arcade.run()
-
 
 if __name__ == "__main__":
     main()
