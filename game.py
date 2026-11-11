@@ -52,7 +52,7 @@ class Game(arcade.Window):
         # Initialize chara here
         self.chara = Dragon()
         self.chara.center_x = WIDTH / 2
-        self.chara.center_y = HEIGHT / 8
+        self.chara.center_y = HEIGHT / 9
         self.scene.add_sprite("Player", self.chara)
 
         # Initialize inhalers here
