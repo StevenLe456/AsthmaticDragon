@@ -8,6 +8,9 @@ CHARA_SCALE = 0.6
 CHARA_SPEED = 4
 CHARA_BOUNDS = [-40, 740]
 INHALER_SCALE = 0.25
+FIRE_SCALE = 0.1
+FIRE_SPEED = 6
+FIRE_OFFSET = 54
 
 class Dragon(arcade.Sprite):
     def __init__(self):
@@ -19,7 +22,7 @@ class Dragon(arcade.Sprite):
         self.texture = self.textures[0]
         self.fire_breathing = False
 
-    def update(self):
+    def update_animation(self, delta_time):
         if self.fire_breathing:
             self.texture = self.textures[1]
         else:
@@ -48,6 +51,7 @@ class Game(arcade.Window):
         self.scene = arcade.Scene()
         self.scene.add_sprite_list("Player")
         self.scene.add_sprite_list("Inhalers")
+        self.scene.add_sprite_list("Fire")
 
         # Initialize chara here
         self.chara = Dragon()
@@ -66,7 +70,7 @@ class Game(arcade.Window):
                 self.scene.add_sprite("Inhalers", inhaler)
 
         # Initialize physics engine
-        self.physics_engine = arcade.PhysicsEngineSimple(self.chara, self.scene.get_sprite_list("Inhalers")) # Complete!
+        self.physics_engine = arcade.PhysicsEngineSimple(self.chara, self.scene.get_sprite_list("Inhalers"))
 
     def on_draw(self):
         # Clear screen first
@@ -75,18 +79,26 @@ class Game(arcade.Window):
         self.scene.draw() # type: ignore
 
     def on_update(self, delta_time: float):
-        # All game logic goes here
+        # Update player movement
         self.physics_engine.update() # type: ignore
         if self.chara.center_x < CHARA_BOUNDS[0]: # type: ignore
             self.chara.center_x = CHARA_BOUNDS[0] # type: ignore
         if self.chara.center_x > CHARA_BOUNDS[1]: # type: ignore
             self.chara.center_x = CHARA_BOUNDS[1] # type: ignore
 
+        # Update player animation
+        self.scene.update_animation(delta_time, ["Player"]) # type: ignore
+
+        # Update bullet, enemies, and collectibles
+        self.scene.update(delta_time, ["Fire"]) # type: ignore
+
     def on_key_press(self, symbol, modifiers):
         if symbol == arcade.key.LEFT or symbol == arcade.key.A:
             self.chara.change_x -= CHARA_SPEED # type: ignore
         elif symbol == arcade.key.RIGHT or symbol == arcade.key.D:
             self.chara.change_x += CHARA_SPEED # type: ignore
+        elif symbol == arcade.key.UP or symbol == arcade.key.W: # Shooting logic
+            self.chara.fire_breathing = True # type: ignore
         else:
             pass
 
@@ -95,6 +107,13 @@ class Game(arcade.Window):
             self.chara.change_x = 0 # type: ignore
         elif symbol == arcade.key.RIGHT or symbol == arcade.key.D:
             self.chara.change_x = 0 # type: ignore
+        elif symbol == arcade.key.UP or symbol == arcade.key.W: # Shooting logic
+            self.chara.fire_breathing = False # type: ignore
+            bullet = arcade.Sprite(os.path.join("assets", "sprites", "sprite_2.png"), FIRE_SCALE)
+            bullet.change_y = FIRE_SPEED
+            bullet.center_x = self.chara.center_x + FIRE_OFFSET # type: ignore
+            bullet.bottom = self.chara.top # type: ignore
+            self.scene.get_sprite_list("Fire").append(bullet) # type: ignore
         else:
             pass
 
