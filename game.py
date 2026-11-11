@@ -92,6 +92,11 @@ class Game(arcade.Window):
         # Update bullet, enemies, and collectibles
         self.scene.update(delta_time, ["Fire"]) # type: ignore
 
+        # Bullet collision and out-of-bounds logic
+        for b in self.scene.get_sprite_list("Fire"): # type: ignore
+            if b.bottom > 600:
+                b.remove_from_sprite_lists()
+
     def on_key_press(self, symbol, modifiers):
         if symbol == arcade.key.LEFT or symbol == arcade.key.A:
             self.chara.change_x -= CHARA_SPEED # type: ignore
