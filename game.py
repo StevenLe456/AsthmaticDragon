@@ -11,6 +11,8 @@ INHALER_SCALE = 0.25
 FIRE_SCALE = 0.1
 FIRE_SPEED = 6
 FIRE_OFFSET = 54
+BUNNY_SCALE = 0.5
+BUNNY_OFFSET = 50
 
 class Dragon(arcade.Sprite):
     def __init__(self):
@@ -52,6 +54,7 @@ class Game(arcade.Window):
         self.scene.add_sprite_list("Player")
         self.scene.add_sprite_list("Inhalers")
         self.scene.add_sprite_list("Fire")
+        self.scene.add_sprite_list("Bunny")
 
         # Initialize chara here
         self.chara = Dragon()
@@ -68,6 +71,14 @@ class Game(arcade.Window):
                 inhaler.center_x = i * WIDTH / 5 + inhaler_offset_x
                 inhaler.center_y = (8 - j) * HEIGHT / 8 - inhaler_offset_y
                 self.scene.add_sprite("Inhalers", inhaler)
+
+        # Initialize dust bunnies here
+        for i in [0, 1, 3, 4, 6, 7]:
+            bunners = arcade.Sprite(os.path.join("assets", "sprites", "sprite_5.png"), BUNNY_SCALE)
+            bunners.center_x = i * WIDTH / 8 + BUNNY_OFFSET
+            bunners.center_y = HEIGHT - 60
+            bunners.change_y = -1
+            self.scene.add_sprite("Bunny", bunners)
 
         # Initialize physics engine
         self.physics_engine = arcade.PhysicsEngineSimple(self.chara, self.scene.get_sprite_list("Inhalers"))
@@ -90,7 +101,7 @@ class Game(arcade.Window):
         self.scene.update_animation(delta_time, ["Player"]) # type: ignore
 
         # Update bullet, enemies, and collectibles
-        self.scene.update(delta_time, ["Fire"]) # type: ignore
+        self.scene.update(delta_time, ["Fire", "Bunny"]) # type: ignore
 
         # Bullet collision and out-of-bounds logic
         for b in self.scene.get_sprite_list("Fire"): # type: ignore
