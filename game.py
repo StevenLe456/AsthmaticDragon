@@ -122,7 +122,8 @@ class Game(arcade.Window):
             hit = arcade.check_for_collision_with_lists(
                 b,
                 [
-                    self.scene["Bunny"] # type: ignore
+                    self.scene["Bunny"], # type: ignore
+                    self.scene["Smileys"] # type: ignore
                 ]
             )
             if hit:
@@ -164,12 +165,25 @@ class Game(arcade.Window):
                         else:
                             pass
                         collision.remove_from_sprite_lists()
+                    elif self.scene["Smileys"] in collision.sprite_lists: # type: ignore
+                        h = arcade.check_for_collision_with_lists(
+                            collision,
+                            [
+                                self.scene["Bunny"] # type: ignore
+                            ]
+                        )
+                        if h:
+                            for c in h:
+                                if self.scene["Bunny"] in c.sprite_lists: # type: ignore
+                                    c.remove_from_sprite_lists()
+                        collision.remove_from_sprite_lists()
+                    else:
+                        pass
             if b.bottom > HEIGHT:
                 b.remove_from_sprite_lists()
 
         # Randomly spawn powerups
         if random.random() < 0.007 and self.num_powerups < 2:
-            print(":(")
             x = random.uniform(100, 700)
             y = random.uniform(100, 400)
             smile = arcade.Sprite(os.path.join("assets", "sprites", "sprite_4.png"))
