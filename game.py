@@ -5,7 +5,7 @@ WIDTH = 800
 HEIGHT = 650
 TITLE = "Asthmatic Dragon"
 CHARA_SCALE = 0.6
-CHARA_SPEED = 4
+CHARA_SPEED = 6
 CHARA_BOUNDS = [-40, 740]
 INHALER_SCALE = 0.25
 FIRE_SCALE = 0.1
@@ -82,7 +82,7 @@ class Game(arcade.Window):
                 self.scene.add_sprite("Inhalers", inhaler)
 
         # Initialize dust bunnies here
-        for i in [0, 1, 3, 4, 6, 7]:
+        for i in [1, 3, 4, 6]:
             bunners = Bunny(os.path.join("assets", "sprites", "sprite_5.png"), BUNNY_SCALE, "large")
             bunners.center_x = i * WIDTH / 8 + BUNNY_OFFSET
             bunners.center_y = HEIGHT - 60
