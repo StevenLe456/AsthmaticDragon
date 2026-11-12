@@ -144,7 +144,7 @@ class Game(arcade.Window):
                         elif collision.sz == "medium":
                             b1 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
                             b1.center_x = collision.center_x - 12
-                            b1.center_y = collision.center_y - 12
+                            b1.center_y = collision.center_y + 12
                             b1.change_y = -2
                             self.scene.add_sprite("Bunny", b1) # type: ignore
                             b2 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
@@ -153,15 +153,10 @@ class Game(arcade.Window):
                             b2.change_y = -2
                             self.scene.add_sprite("Bunny", b2) # type: ignore
                             b3 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
-                            b3.center_x = collision.center_x + 12
+                            b3.center_x = collision.center_x
                             b3.center_y = collision.center_y - 12
                             b3.change_y = -2
                             self.scene.add_sprite("Bunny", b3) # type: ignore
-                            b4 = Bunny(os.path.join("assets", "sprites", "sprite_7.png"), SMALLEST_BUN_SCALE, "small")
-                            b4.center_x = collision.center_x - 12
-                            b4.center_y = collision.center_y + 12
-                            b4.change_y = -2
-                            self.scene.add_sprite("Bunny", b4) # type: ignore
                         else:
                             pass
                         collision.remove_from_sprite_lists()
@@ -177,6 +172,7 @@ class Game(arcade.Window):
                                 if self.scene["Bunny"] in c.sprite_lists: # type: ignore
                                     c.remove_from_sprite_lists()
                         collision.remove_from_sprite_lists()
+                        self.num_powerups -= 1
                     else:
                         pass
             if b.bottom > HEIGHT:
