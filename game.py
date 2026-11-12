@@ -1,5 +1,6 @@
 import arcade
 import os
+import random
 
 WIDTH = 800
 HEIGHT = 650
@@ -57,6 +58,9 @@ class Game(arcade.Window):
         # Physics engine
         self.physics_engine = None
 
+        # Game states
+        self.num_powerups = 0
+
     def setup(self):
         # Initialize scene and add sprite lists
         self.scene = arcade.Scene()
@@ -64,6 +68,7 @@ class Game(arcade.Window):
         self.scene.add_sprite_list("Inhalers")
         self.scene.add_sprite_list("Fire")
         self.scene.add_sprite_list("Bunny")
+        self.scene.add_sprite_list("Smileys")
 
         # Initialize chara here
         self.chara = Dragon()
@@ -161,6 +166,18 @@ class Game(arcade.Window):
                         collision.remove_from_sprite_lists()
             if b.bottom > HEIGHT:
                 b.remove_from_sprite_lists()
+
+        # Randomly spawn powerups
+        if random.random() < 0.007 and self.num_powerups < 2:
+            print(":(")
+            x = random.uniform(100, 700)
+            y = random.uniform(100, 400)
+            smile = arcade.Sprite(os.path.join("assets", "sprites", "sprite_4.png"))
+            smile.center_x = x
+            smile.center_y = y
+            smile.alpha = 100
+            self.scene.add_sprite("Smileys", smile) # type: ignore
+            self.num_powerups += 1
 
     def on_key_press(self, symbol, modifiers):
         if symbol == arcade.key.LEFT or symbol == arcade.key.A:
