@@ -219,8 +219,16 @@ class Bunny(arcade.Sprite):
         self.sz = sz
 
 class Instructions(arcade.View):
-    def __init__(self):
+    def __init__(self, cap, data, scaler, svc, last_taken, period, tracker, proc):
         super().__init__()
+        self.cap = cap
+        self.data = data
+        self.scaler = scaler
+        self.svc = svc
+        self.last_taken = last_taken
+        self.period = period
+        self.tracker = tracker
+        self.proc = proc
         self.page = 0
         self.continue_text = "Press C to continue..."
         self.texts = [
@@ -238,7 +246,7 @@ class Instructions(arcade.View):
 
     def on_update(self, delta_time: float):
         if self.page == len(self.texts):
-            toriel = InhalerTutorial()
+            toriel = InhalerTutorial(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
             self.window.show_view(toriel)
         else:
             self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text
@@ -251,8 +259,24 @@ class Instructions(arcade.View):
             self.page += 1
 
 class InhalerTutorial(arcade.View):
-    def __init__(self):
+    def __init__(self, cap, data, scaler, svc, last_taken, period, tracker, proc):
+        super().__init__()
+        self.cap = cap
+        self.data = data
+        self.scaler = scaler
+        self.svc = svc
+        self.last_taken = last_taken
+        self.period = period
+        self.tracker = tracker
+        self.proc = proc
         self.record = False
+        self.page = 0
+        self.continue_text = "Press C to continue..."
+        self.texts = [
+            "Now, let's practice how to inhale your medication properly.",
+            "To do this:\n1. Exhale completely.\n2. While breathing in, press down on your inhaler and breathe in fully.\n3. Hold in your breath for 10 seconds.\n4. Exhale slowly.",
+            "Now, press the R key to record your breathing.\nPress the R key again to stop recording."
+        ]
 
 class Game(arcade.View):
     def __init__(self):
@@ -460,7 +484,7 @@ class AsthmaticDragon:
         self.data = []
 
         self.window = arcade.Window(WIDTH, HEIGHT, TITLE)
-        self.instruct = Instructions()
+        self.instruct = Instructions(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
         self.window.show_view(self.instruct)
 
     def close(self):
