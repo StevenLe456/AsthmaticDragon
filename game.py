@@ -324,8 +324,8 @@ class InhalerTutorial(arcade.View):
         self.classy = ""
 
     def on_draw(self):
-            self.window.clear()
-            self.current_text.draw() # type: ignore
+        self.window.clear()
+        self.current_text.draw() # type: ignore
 
     def on_update(self, delta_time: float):
         if self.error and self.page == len(self.texts) + 1:
@@ -348,6 +348,7 @@ class InhalerTutorial(arcade.View):
                 else:
                     self.current_text.text = ""
         elif self.page == len(self.texts) + 1:
+            self.data = []
             next_toriel = BoxTutorial(self.cap, self.data, self.scaler, self.inhaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
             self.window.show_view(next_toriel)
         else:
@@ -400,7 +401,7 @@ class BoxTutorial(arcade.View):
             self.page = 1
             self.data = []
         if self.page == len(self.texts) - 1:
-            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.inhaler, self.last_taken, self.period, self.tracker, self.proc)
+            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
             if not self.record and self.data:
                 self.page += 1
         elif self.page == len(self.texts):
@@ -414,10 +415,12 @@ class BoxTutorial(arcade.View):
                     self.current_text.text = "You did not breathe in/out long enough." + "\n\n" + self.continue_text
                 else:
                     self.current_text.text = ""
+                    print(self.classy)
         elif self.page == len(self.texts) + 1:
             self.current_text.text = "You have completed the tutorials!\n\nPress C to continue to the game."
         elif self.page == len(self.texts) + 2:
-            game = Game()
+            self.data = []
+            game = Game(self.cap, self.data, self.scaler, self.inhaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
             self.window.show_view(game)
         else:
             self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text    
@@ -436,8 +439,20 @@ class BoxTutorial(arcade.View):
             self.record = not self.record
 
 class Game(arcade.View):
-    def __init__(self):
+    def __init__(self, cap, data, scaler, fresh1, fresh2, last_taken, period, tracker, proc):
         super().__init__()
+
+        self.error = False
+        self.cap = cap
+        self.data = data
+        self.scaler = scaler
+        self.inhaler = fresh1
+        self.box = fresh2
+        self.last_taken = last_taken
+        self.period = period
+        self.tracker = tracker
+        self.proc = proc
+        self.classy = ""
 
         # Create scene and set to None
         self.scene = None
@@ -455,6 +470,9 @@ class Game(arcade.View):
 
         # Game states
         self.num_powerups = 0
+        self.powerup_hit = False
+        self.breathing = FIRE_SPEED
+        self.points = 0
 
         # Initialize scene and add sprite lists
         self.scene = arcade.Scene()
@@ -477,6 +495,10 @@ class Game(arcade.View):
         # Initialize dust bunnies here
         for i in range(3):
             self.create_bunnies()
+
+        # Initialize texts
+        self.point_text = arcade.Text(f"Points: {self.points}", 10, HEIGHT - 50, font_size=12)
+        self.lives_text = arcade.Text(f"Lives: {self.breathing // 2}", WIDTH / 2 + 100, HEIGHT - 50, font_size=12)
 
         # Initialize physics engine
         self.physics_engine = arcade.PhysicsEngineSimple(self.chara, self.scene.get_sprite_list("Inhalers"))
@@ -502,6 +524,8 @@ class Game(arcade.View):
         self.clear()
         # Draw scene
         self.scene.draw() # type: ignore
+        self.point_text.draw()
+        self.lives_text.draw()
 
     def on_update(self, delta_time: float):
         # Update player movement
@@ -530,6 +554,7 @@ class Game(arcade.View):
                 b.remove_from_sprite_lists()
                 for collision in hit:
                     if self.scene["Bunny"] in collision.sprite_lists: # type: ignore
+                        self.points += 1
                         if collision.sz == "large":
                             b1 = Bunny(os.path.join("assets", "sprites", "sprite_6.png"), SMALLER_BUN_SCALE, "medium")
                             b1.center_x = collision.center_x - 25
@@ -561,18 +586,30 @@ class Game(arcade.View):
                             pass
                         collision.remove_from_sprite_lists()
                     elif self.scene["Smileys"] in collision.sprite_lists: # type: ignore
-                        h = arcade.check_for_collision_with_lists(
-                            collision,
-                            [
-                                self.scene["Bunny"] # type: ignore
-                            ]
-                        )
-                        if h:
-                            for c in h:
-                                if self.scene["Bunny"] in c.sprite_lists: # type: ignore
-                                    c.remove_from_sprite_lists()
-                        collision.remove_from_sprite_lists()
-                        self.num_powerups -= 1
+                        self.powerup_hit = True
+                        if self.powerup_hit and self.classy == "":
+                            boxy = Box(self)
+                            self.window.show_view(boxy)
+                        elif self.powerup_hit and self.classy == "box":
+                            h = arcade.check_for_collision_with_lists(
+                                collision,
+                                [
+                                    self.scene["Bunny"] # type: ignore
+                                ]
+                            )
+                            if h:
+                                for c in h:
+                                    if self.scene["Bunny"] in c.sprite_lists: # type: ignore
+                                        c.remove_from_sprite_lists()
+                            collision.remove_from_sprite_lists()
+                            self.num_powerups -= 1
+                            self.powerup_hit = False
+                        elif self.powerup_hit and self.classy != "" and self.error:
+                            collision.remove_from_sprite_lists()
+                            self.num_powerups -= 1
+                            self.powerup_hit = False
+                        else:
+                            pass
                     else:
                         pass
             if b.bottom > HEIGHT:
@@ -580,6 +617,7 @@ class Game(arcade.View):
             for b in self.scene.get_sprite_list("Bunny"): # type: ignore
                 if b.top < 0:
                     b.remove_from_sprite_lists()
+                    self.breathing -= 2
 
         # Randomly spawn powerups
         if random.random() < 0.007 and self.num_powerups < 2:
@@ -614,12 +652,121 @@ class Game(arcade.View):
         elif symbol == arcade.key.UP or symbol == arcade.key.W: # Shooting logic
             self.chara.fire_breathing = False # type: ignore
             bullet = arcade.Sprite(os.path.join("assets", "sprites", "sprite_2.png"), FIRE_SCALE)
-            bullet.change_y = FIRE_SPEED
+            bullet.change_y = self.breathing
             bullet.center_x = self.chara.center_x + FIRE_OFFSET # type: ignore
             bullet.bottom = self.chara.top # type: ignore
             self.scene.get_sprite_list("Fire").append(bullet) # type: ignore
         else:
             pass
+
+class Inhaler(arcade.View):
+    def __init__(self, game):
+        super().__init__()
+        self.page = 0
+        self.record = False
+        self.processed = False
+        self.game = game
+        self.continue_text = "Press C to continue..."
+        self.text = "To use the inhaler, practice inhaling your medication properly.\nPress the R key to record your breathing.\nPress the R key again to stop recording."
+        self.current_text = arcade.Text(self.text, 10, HEIGHT - 50, multiline=True, width=WIDTH-50, font_size=24)
+
+    def on_draw(self):
+        self.window.clear()
+        self.current_text.draw() # type: ignore
+
+    def on_update(self, delta_time: float):
+        if self.page == 0:
+            self.game.classy = capture(self.game.cap, self.record, self.game.data, self.game.scaler, self.game.box, self.game.last_taken, self.game.period, self.game.tracker, self.game.proc)
+            if not self.record and self.game.data:
+                self.page += 1
+        elif self.page == 1:
+            if self.game.classy == "inhaler":
+                self.current_text.text = "You successfully inhaled your rescue medication!" + "\n\n" + self.continue_text
+            else:
+                self.error = True
+                if self.game.classy == "non-inhaler (forgot to exhale in the beginning)":
+                    self.current_text.text = "You forgot to exhale fully in the beginning." + "\n\n" + self.continue_text
+                elif self.game.classy == "non-inhaler (pause in breathing too short)":
+                    self.current_text.text = "You did not hold your breath long enough." + "\n\n" + self.continue_text
+                else:
+                    self.current_text.text = ""
+        elif self.page == 2:
+            self.game.data = []
+            self.window.show_view(self.game)
+        else:
+            pass
+        if self.game.classy == "no-face":
+            self.current_text.text = "Trying to detect face..."
+
+    def on_show_view(self):
+        self.background_color = arcade.color.BLACK
+
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.C:
+            self.page += 1
+        if symbol == arcade.key.R and self.page == 0:
+            self.record = not self.record
+
+class Box(arcade.View):
+    def __init__(self, game):
+        super().__init__()
+        self.page = 0
+        self.record = False
+        self.processed = False
+        self.game = game
+        self.continue_text = "Press C to continue..."
+        self.text = "To use the power-up, do a box breathing exercise.\nPress the R key to record your breathing.\nPress the R key again to stop recording."
+        self.current_text = arcade.Text(self.text, 10, HEIGHT - 50, multiline=True, width=WIDTH-50, font_size=24)
+
+    def on_draw(self):
+        self.window.clear()
+        self.current_text.draw() # type: ignore
+
+    def on_update(self, delta_time: float):
+        if self.page == 0:
+            self.game.classy = capture(self.game.cap, self.record, self.game.data, self.game.scaler, self.game.box, self.game.last_taken, self.game.period, self.game.tracker, self.game.proc)
+            if not self.record and self.game.data:
+                self.page += 1
+        elif self.page == 1:
+            if self.game.classy == "box":
+                self.current_text.text = "You successfully did a box breathing exercise!" + "\n\n" + self.continue_text
+            else:
+                self.error = True
+                if self.game.classy == "non-box (pause in breathing too short)":
+                    self.current_text.text = "You did not hold your breath long enough." + "\n\n" + self.continue_text
+                elif self.game.classy == "non-box (breathing in/out too short)":
+                    self.current_text.text = "You did not breathe in/out long enough." + "\n\n" + self.continue_text
+                else:
+                    self.current_text.text = ""
+        elif self.page == 2:
+            self.game.data = []
+            self.window.show_view(self.game)
+        else:
+            pass
+        if self.game.classy == "no-face":
+            self.current_text.text = "Trying to detect face..."
+
+    def on_show_view(self):
+        self.background_color = arcade.color.BLACK
+
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.C:
+            self.page += 1
+        if symbol == arcade.key.R and self.page == 0:
+            self.record = not self.record
+
+class GameOver(arcade.View):
+    def __init__(self, points):
+        super().__init__()
+        self.points = points
+        self.current_text = arcade.Text(f"GAME OVER!\n\nPoints: {self.points}", 10, HEIGHT - 50, multiline=True, width=WIDTH-50, font_size=24)
+
+    def on_draw(self):
+        self.window.clear()
+        self.current_text.draw() # type: ignore
+
+    def on_show_view(self):
+        self.background_color = arcade.color.BLACK
 
 class AsthmaticDragon:
     def __init__(self):
