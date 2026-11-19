@@ -676,7 +676,7 @@ class Inhaler(arcade.View):
 
     def on_update(self, delta_time: float):
         if self.page == 0:
-            self.game.classy = capture(self.game.cap, self.record, self.game.data, self.game.scaler, self.game.box, self.game.last_taken, self.game.period, self.game.tracker, self.game.proc)
+            self.game.classy = capture(self.game.cap, self.record, self.game.data, self.game.scaler, self.game.inhaler, self.game.last_taken, self.game.period, self.game.tracker, self.game.proc)
             if not self.record and self.game.data:
                 self.page += 1
         elif self.page == 1:
