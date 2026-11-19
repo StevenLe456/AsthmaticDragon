@@ -5,14 +5,13 @@ from neural_methods.model.BigSmall import BigSmall
 import numpy as np
 import os
 import pandas as pd
-import pickle
 import random
 from scipy.signal import butter, sosfiltfilt
 import time
 import torch
-from tslearn.preprocessing import TimeSeriesScalerMeanVariance
-from tslearn.svm import TimeSeriesSVC
-from tslearn.utils import to_time_series_dataset
+from sktime.base import load
+from sktime.classification.feature_based import TSFreshClassifier
+from sktime.transformations.interpolate import TSInterpolator
 
 DETECT_EVERY = 10
 BOX_SCALE = 1.5
@@ -39,7 +38,52 @@ BUNNY_SCALE = 0.5
 SMALLER_BUN_SCALE = 0.25
 SMALLEST_BUN_SCALE = 0.12
 
-def capture(cap, record, data, scaler, svc, last_taken, period, tracker, proc):
+def to_nested_dataframe(recordings, channel_names=None):
+    """Convert arrays of shape (timepoints, channels) to an sktime panel."""
+    if len(recordings) == 0:
+        raise ValueError("At least one recording is required.")
+
+    arrays = [np.asarray(recording, dtype=np.float64)
+              for recording in recordings]
+
+    if any(array.ndim != 2 for array in arrays):
+        raise ValueError(
+            "Each recording must have shape (n_timepoints, n_channels)."
+        )
+
+    n_channels = arrays[0].shape[1]
+    if n_channels == 0:
+        raise ValueError("Recordings must contain at least one channel.")
+
+    for i, array in enumerate(arrays):
+        if array.shape[1] != n_channels:
+            raise ValueError(f"Recording {i} has a different channel count.")
+        if array.shape[0] < 2:
+            raise ValueError(
+                f"Recording {i} needs at least two points for interpolation."
+            )
+        if not np.isfinite(array).all():
+            raise ValueError(
+                f"Recording {i} contains NaN or infinite values; "
+                "handle these before using this template."
+            )
+
+    if channel_names is None:
+        channel_names = [f"channel_{j}" for j in range(n_channels)]
+    else:
+        channel_names = list(channel_names)
+
+    if len(channel_names) != n_channels:
+        raise ValueError("channel_names must match the number of channels.")
+    if len(set(channel_names)) != n_channels:
+        raise ValueError("Channel names must be unique.")
+
+    return pd.DataFrame({
+        name: [pd.Series(array[:, j]) for array in arrays]
+        for j, name in enumerate(channel_names)
+    })
+
+def capture(cap, record, data, scaler, fresh, last_taken, period, tracker, proc):
     ok, frame = cap.read()
     if not ok:
         return ""
@@ -71,24 +115,22 @@ def capture(cap, record, data, scaler, svc, last_taken, period, tracker, proc):
             bvp = clean_signal(bvp, TARGET_FPS, BVP_LOW, BVP_HIGH)
             resp = clean_signal(resp, TARGET_FPS, RESP_LOW, RESP_HIGH)
             x = np.stack([bvp, resp]).T.tolist()
-            x = [x]
-            x = to_time_series_dataset(x)
-            scaler.fit_transform(x)
-            pred = svc.predict(x)
+            channels = ["bvp", "resp"]
+            x = to_nested_dataframe([x], channels)
+            x = scaler.fit_transform(x)
+            pred = fresh.predict(x)
             classy = ""
             if pred == 0:
-                classy = "normal"
-            elif pred == 1:
                 classy = "box"
-            elif pred == 2:
+            elif pred == 1:
                 classy = "inhaler"
-            elif pred == 3:
+            elif pred == 2:
                 classy = "non-box (pause in breathing too short)"
-            elif pred == 4:
+            elif pred == 3:
                 classy = "non-box (breathing in/out too short)"
-            elif pred == 5:
+            elif pred == 4:
                 classy = "non-inhaler (forgot to exhale in the beginning)"
-            elif pred == 6:
+            elif pred == 5:
                 classy = "non-inhaler (pause in breathing too short)"
             else:
                 classy = "error"
@@ -217,12 +259,13 @@ class Bunny(arcade.Sprite):
         self.sz = sz
 
 class Instructions(arcade.View):
-    def __init__(self, cap, data, scaler, svc, last_taken, period, tracker, proc):
+    def __init__(self, cap, data, scaler, fresh1, fresh2, last_taken, period, tracker, proc):
         super().__init__()
         self.cap = cap
         self.data = data
         self.scaler = scaler
-        self.svc = svc
+        self.inhaler = fresh1
+        self.box = fresh2
         self.last_taken = last_taken
         self.period = period
         self.tracker = tracker
@@ -244,7 +287,7 @@ class Instructions(arcade.View):
 
     def on_update(self, delta_time: float):
         if self.page == len(self.texts):
-            toriel = InhalerTutorial(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
+            toriel = InhalerTutorial(self.cap, self.data, self.scaler, self.inhaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
             self.window.show_view(toriel)
         else:
             self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text
@@ -257,13 +300,14 @@ class Instructions(arcade.View):
             self.page += 1
 
 class InhalerTutorial(arcade.View):
-    def __init__(self, cap, data, scaler, svc, last_taken, period, tracker, proc):
+    def __init__(self, cap, data, scaler, fresh1, fresh2, last_taken, period, tracker, proc):
         super().__init__()
         self.error = False
         self.cap = cap
         self.data = data
         self.scaler = scaler
-        self.svc = svc
+        self.inhaler = fresh1
+        self.box = fresh2
         self.last_taken = last_taken
         self.period = period
         self.tracker = tracker
@@ -289,7 +333,7 @@ class InhalerTutorial(arcade.View):
             self.page = 1
             self.data = []
         if self.page == len(self.texts) - 1:
-            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
+            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.inhaler, self.last_taken, self.period, self.tracker, self.proc)
             if not self.record and self.data:
                 self.page += 1
         elif self.page == len(self.texts):
@@ -297,18 +341,15 @@ class InhalerTutorial(arcade.View):
                 self.current_text.text = "You successfully learned how to inhale your rescue medication!" + "\n\n" + self.continue_text
             else:
                 self.error = True
-                if self.classy == "normal":
-                    self.current_text.text = "You were breathing normally instead of inhaling your medication." + "\n\n" + self.continue_text
-                elif self.classy == "non-inhaler (forgot to exhale in the beginning)":
+                if self.classy == "non-inhaler (forgot to exhale in the beginning)":
                     self.current_text.text = "You forgot to exhale fully in the beginning." + "\n\n" + self.continue_text
-                elif self.classy == "non-inhaler (pause in breathing too short)" or self.classy == "box" or self.classy == "non-box (pause in breathing too short)" or self.classy == "non-box (breathing in/out too short)":
+                elif self.classy == "non-inhaler (pause in breathing too short)":
                     self.current_text.text = "You did not hold your breath long enough." + "\n\n" + self.continue_text
                 else:
                     self.current_text.text = ""
         elif self.page == len(self.texts) + 1:
-            #toriel = InhalerTutorial(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
-            #self.window.show_view(toriel)
-            pass
+            next_toriel = BoxTutorial(self.cap, self.data, self.scaler, self.inhaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
+            self.window.show_view(next_toriel)
         else:
             self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text    
         if self.classy == "no-face":
@@ -326,10 +367,73 @@ class InhalerTutorial(arcade.View):
             self.record = not self.record
 
 class BoxTutorial(arcade.View):
-    def __init__(self):
-        pass
+    def __init__(self, cap, data, scaler, fresh1, fresh2, last_taken, period, tracker, proc):
+        super().__init__()
+        self.error = False
+        self.cap = cap
+        self.data = data
+        self.scaler = scaler
+        self.inhaler = fresh1
+        self.box = fresh2
+        self.last_taken = last_taken
+        self.period = period
+        self.tracker = tracker
+        self.proc = proc
+        self.record = False
+        self.page = 0
+        self.continue_text = "Press C to continue..."
+        self.texts = [
+            "Now, let's practice how to do box breathing.",
+            "To do this:\n1. Inhale for 4 seconds.\n2. Hold your breath for 4 seconds.\n3. Exhale for 4 seconds.\n4. Hold your breath for 4 seconds.",
+            "Now, press the R key to record your breathing.\nPress the R key again to stop recording."
+        ]
+        self.current_text = arcade.Text(self.texts[self.page] + "\n\n" + self.continue_text, 10, HEIGHT - 50, multiline=True, width=WIDTH-50, font_size=24)
+        self.classy = ""
+
+    def on_draw(self):
+        self.window.clear()
+        self.current_text.draw() # type: ignore
+    
+    def on_update(self, delta_time: float):
+        if self.error and self.page == len(self.texts) + 1:
+            self.error = False
+            self.page = 1
+            self.data = []
+        if self.page == len(self.texts) - 1:
+            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.inhaler, self.last_taken, self.period, self.tracker, self.proc)
+            if not self.record and self.data:
+                self.page += 1
+        elif self.page == len(self.texts):
+            if self.classy == "box":
+                self.current_text.text = "You successfully learned how to do box breathing!" + "\n\n" + self.continue_text
+            else:
+                self.error = True
+                if self.classy == "non-box (pause in breathing too short)":
+                    self.current_text.text = "You did not hold your breath long enough." + "\n\n" + self.continue_text
+                elif self.classy == "non-box (breathing in/out too short)":
+                    self.current_text.text = "You did not breathe in/out long enough." + "\n\n" + self.continue_text
+                else:
+                    self.current_text.text = ""
+        elif self.page == len(self.texts) + 1:
+            self.current_text.text = "You have completed the tutorials!\n\nPress C to continue to the game."
+        elif self.page == len(self.texts) + 2:
+            game = Game()
+            self.window.show_view(game)
+        else:
+            self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text    
+        if self.classy == "no-face":
+            self.current_text.text = "Trying to detect face..."
+        if self.page == len(self.texts) - 1:
+            self.current_text.text = self.texts[self.page]
+
     def on_show_view(self):
         self.window.background_color = arcade.color.BLACK
+    
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.C:
+            self.page += 1
+        if symbol == arcade.key.R and self.page == len(self.texts) - 1:
+            self.record = not self.record
 
 class Game(arcade.View):
     def __init__(self):
@@ -523,9 +627,9 @@ class AsthmaticDragon:
         model = load_model("final_model_release/BP4D_BigSmall_Multitask_Fold1.pth")
         self.proc = WindowProcessor(model)
         self.tracker = FaceTracker()
-        with open("final_model_release/svc.pickle", "rb") as p:
-            self.svc = pickle.load(p)
-        self.scaler = TimeSeriesScalerMeanVariance()
+        self.box = load("final_model_release/box")
+        self.inhaler = load("final_model_release/inhaler")
+        self.scaler = TSInterpolator(length=200)
     
         self.cap = cv2.VideoCapture(0)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -537,7 +641,7 @@ class AsthmaticDragon:
         self.data = []
 
         self.window = arcade.Window(WIDTH, HEIGHT, TITLE)
-        self.instruct = Instructions(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
+        self.instruct = Instructions(self.cap, self.data, self.scaler, self.inhaler, self.box, self.last_taken, self.period, self.tracker, self.proc)
         self.window.show_view(self.instruct)
 
     def close(self):
