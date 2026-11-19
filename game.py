@@ -51,7 +51,6 @@ def capture(cap, record, data, scaler, svc, last_taken, period, tracker, proc):
             tracker.update(frame)
             res = tracker.crop(frame)
             if res is not None:
-                print("Face detected")
                 crop, (x0, y0, x1, y1) = res
                 cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 200, 0), 2)
                 out = proc.push(crop)
@@ -62,10 +61,9 @@ def capture(cap, record, data, scaler, svc, last_taken, period, tracker, proc):
             else:
                 # Lost the face: reset so we don't stitch across a gap
                 proc.big.clear(); proc.small.clear()
-                return ""
+                return "no-face"
     else:
         if data:
-            print("Stop recording")
             df = pd.DataFrame(data)
             # Process data here
             bvp = df["bvp"].to_numpy()
@@ -261,6 +259,7 @@ class Instructions(arcade.View):
 class InhalerTutorial(arcade.View):
     def __init__(self, cap, data, scaler, svc, last_taken, period, tracker, proc):
         super().__init__()
+        self.error = False
         self.cap = cap
         self.data = data
         self.scaler = scaler
@@ -277,6 +276,60 @@ class InhalerTutorial(arcade.View):
             "To do this:\n1. Exhale completely.\n2. While breathing in, press down on your inhaler and breathe in fully.\n3. Hold in your breath for 10 seconds.\n4. Exhale slowly.",
             "Now, press the R key to record your breathing.\nPress the R key again to stop recording."
         ]
+        self.current_text = arcade.Text(self.texts[self.page] + "\n\n" + self.continue_text, 10, HEIGHT - 50, multiline=True, width=WIDTH-50, font_size=24)
+        self.classy = ""
+
+    def on_draw(self):
+            self.window.clear()
+            self.current_text.draw() # type: ignore
+
+    def on_update(self, delta_time: float):
+        if self.error and self.page == len(self.texts) + 1:
+            self.error = False
+            self.page = 1
+            self.data = []
+        if self.page == len(self.texts) - 1:
+            self.classy = capture(self.cap, self.record, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
+            if not self.record and self.data:
+                self.page += 1
+        elif self.page == len(self.texts):
+            if self.classy == "inhaler":
+                self.current_text.text = "You successfully learned how to inhale your rescue medication!" + "\n\n" + self.continue_text
+            else:
+                self.error = True
+                if self.classy == "normal":
+                    self.current_text.text = "You were breathing normally instead of inhaling your medication." + "\n\n" + self.continue_text
+                elif self.classy == "non-inhaler (forgot to exhale in the beginning)":
+                    self.current_text.text = "You forgot to exhale fully in the beginning." + "\n\n" + self.continue_text
+                elif self.classy == "non-inhaler (pause in breathing too short)" or self.classy == "box" or self.classy == "non-box (pause in breathing too short)" or self.classy == "non-box (breathing in/out too short)":
+                    self.current_text.text = "You did not hold your breath long enough." + "\n\n" + self.continue_text
+                else:
+                    self.current_text.text = ""
+        elif self.page == len(self.texts) + 1:
+            #toriel = InhalerTutorial(self.cap, self.data, self.scaler, self.svc, self.last_taken, self.period, self.tracker, self.proc)
+            #self.window.show_view(toriel)
+            pass
+        else:
+            self.current_text.text = self.texts[self.page] + "\n\n" + self.continue_text    
+        if self.classy == "no-face":
+            self.current_text.text = "Trying to detect face..."
+        if self.page == len(self.texts) - 1:
+            self.current_text.text = self.texts[self.page]
+
+    def on_show_view(self):
+        self.window.background_color = arcade.color.BLACK
+    
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.C:
+            self.page += 1
+        if symbol == arcade.key.R and self.page == len(self.texts) - 1:
+            self.record = not self.record
+
+class BoxTutorial(arcade.View):
+    def __init__(self):
+        pass
+    def on_show_view(self):
+        self.window.background_color = arcade.color.BLACK
 
 class Game(arcade.View):
     def __init__(self):

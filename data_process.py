@@ -43,8 +43,9 @@ def main():
             i = np.stack([bvp, resp]).tolist()
             j = -1
             if "normal" in path:
-                j = 0
-                normal += 1
+                # j = 0
+                # normal += 1
+                continue
             elif "nonbox1" in path:
                 j = 3
                 b1 += 1
@@ -65,10 +66,10 @@ def main():
                 inhaler += 1
             else:
                 print("Error...")
-            if (j == 0 and normal <= 15) or (j == 1 and box <= 15) or (j == 2 and inhaler <= 15) or (j == 3 and b1 <= 15) or (j == 4 and b2 <= 15) or (j == 5 and i1 <= 15) or (j == 6 and i2 <= 15):
+            if (j == 1 and box <= 15) or (j == 2 and inhaler <= 15) or (j == 3 and b1 <= 15) or (j == 4 and b2 <= 15) or (j == 5 and i1 <= 15) or (j == 6 and i2 <= 15):
                 train_x.append(i)
                 train_y.append(j)
-            elif (j == 0 and normal > 15) or (j == 1 and box > 15) or (j == 2 and inhaler > 15) or (j == 3 and b1 > 15) or (j == 4 and b2 > 15) or (j == 5 and i1 > 15) or (j == 6 and i2 > 15):
+            elif (j == 1 and box > 15) or (j == 2 and inhaler > 15) or (j == 3 and b1 > 15) or (j == 4 and b2 > 15) or (j == 5 and i1 > 15) or (j == 6 and i2 > 15):
                 test_x.append(i)
                 test_y.append(j)
             else:
@@ -76,7 +77,7 @@ def main():
 
     data = {"train": [train_x, train_y], "test": [test_x, test_y]}
 
-    with open("data/data.pickle", "wb") as p:
+    with open("data/data_variant.pickle", "wb") as p:
         pickle.dump(data, p)
 
 if __name__ == "__main__":
